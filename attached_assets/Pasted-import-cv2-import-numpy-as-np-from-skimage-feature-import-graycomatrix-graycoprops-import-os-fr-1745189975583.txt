@@ -1,0 +1,149 @@
+import cv2
+import numpy as np
+from skimage.feature import graycomatrix, graycoprops
+import os
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+import joblib
+import logging
+from tqdm import tqdm
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Constants (Match the first code's processing)
+ANTIBODY_TYPES = ["Anti A", "Anti B", "Anti D", "H Antigen Serum Test"]
+GLCM_PROPERTIES = ['contrast', 'energy', 'homogeneity', 'correlation', 'dissimilarity']
+ANGLES = [0, np.pi/4, np.pi/2, 3*np.pi/4]
+
+def parse_annotations(file_path):
+    """Parses YOLO format annotations without XML tags."""
+    annotations = []
+    try:
+        with open(file_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) != 5:
+                    logger.warning(f"Invalid annotation line: {line}")
+                    continue
+                try:
+                    class_label = int(parts[0])
+                    coords = list(map(float, parts[1:]))
+                    annotations.append((class_label, *coords))
+                except ValueError as e:
+                    logger.error(f"Error parsing line: {line} - {e}")
+    except Exception as e:
+        logger.error(f"Failed to read {file_path}: {e}")
+    return annotations
+
+def process_image(img):
+    """Preprocess image (identical to the first code)."""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    saturation = hsv[:, :, 1]
+    _, thresh = cv2.threshold(saturation, 0, 255, cv2.THRESH_OTSU + cv2.THRESH_BINARY)
+    adaptive = cv2.adaptiveThreshold(thresh, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 15, 12)
+    kernel = np.ones((5,5), np.uint8)
+    processed = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, kernel)
+    return processed
+
+def extract_features(processed_img):
+    """Extract GLCM features (identical to the first code)."""
+    glcm = graycomatrix(processed_img, distances=[1], angles=ANGLES, symmetric=True, normed=True)
+    features = []
+    for prop in GLCM_PROPERTIES:
+        features.extend(graycoprops(glcm, prop).ravel())
+    white_pixels = np.sum(processed_img == 255) / processed_img.size
+    features.append(white_pixels)
+    return np.array(features)
+
+def load_dataset(dataset_path):
+    """Loads dataset with YOLO annotations and extracts features."""
+    features = []
+    labels = []
+    
+    for image_file in tqdm(os.listdir(dataset_path), desc="Processing Images"):
+        if not image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+            continue
+        
+        # Get corresponding annotation file
+        base_name = os.path.splitext(image_file)[0]
+        annotation_file = os.path.join(dataset_path, f"{base_name}.txt")
+        if not os.path.exists(annotation_file):
+            logger.warning(f"No annotations for {image_file}")
+            continue
+        
+        # Load image and annotations
+        img = cv2.imread(os.path.join(dataset_path, image_file))
+        if img is None:
+            logger.error(f"Failed to load {image_file}")
+            continue
+        
+        annotations = parse_annotations(annotation_file)
+        if not annotations:
+            logger.warning(f"No valid annotations in {annotation_file}")
+            continue
+        
+        # Process each annotation (assuming one annotation per test section)
+        for ann in annotations:
+            class_label, x_center, y_center, width, height = ann
+            
+            # Convert YOLO coordinates to pixel values
+            h, w = img.shape[:2]
+            x1 = int((x_center - width/2) * w)
+            y1 = int((y_center - height/2) * h)
+            x2 = int((x_center + width/2) * w)
+            y2 = int((y_center + height/2) * h)
+            
+            # Crop and process the test section
+            section = img[y1:y2, x1:x2]
+            if section.size == 0:
+                continue
+            
+            processed = process_image(section)
+            feature_vector = extract_features(processed)
+            
+            features.append(feature_vector)
+            labels.append(class_label)  # Assuming 0=No Agglutination, 1=Agglutination
+    
+    return np.array(features), np.array(labels)
+
+def train_and_evaluate(features, labels):
+    """Trains and evaluates the classifier."""
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, stratify=labels)
+    
+    clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
+    clf.fit(X_train, y_train)
+    
+    y_pred = clf.predict(X_test)
+    logger.info(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+    logger.info("\nClassification Report:\n" + classification_report(y_test, y_pred))
+    
+    return clf
+
+def main():
+    dataset_path = "blood_dataset"
+    if not os.path.exists(dataset_path):
+        logger.error(f"Dataset directory '{dataset_path}' not found!")
+        return
+    
+    logger.info("Loading dataset and extracting features...")
+    features, labels = load_dataset(dataset_path)
+    
+    if len(features) == 0:
+        logger.error("No features extracted. Check dataset and annotations.")
+        return
+    
+    logger.info(f"Successfully extracted {len(features)} samples.")
+    logger.info("Training model...")
+    model = train_and_evaluate(features, labels)
+    
+    joblib.dump(model, "blood_type_classifier.pkl")
+    logger.info("Model saved as 'blood_type_classifier.pkl'")
+
+if __name__ == "__main__":
+    main()

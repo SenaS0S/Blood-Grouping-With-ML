@@ -1,0 +1,375 @@
+import cv2
+import numpy as np
+import os
+import tkinter as tk
+from tkinter import messagebox, filedialog
+from PIL import Image, ImageTk
+from skimage.feature import graycomatrix, graycoprops
+from threading import Thread
+import joblib
+import matplotlib.pyplot as plt
+from io import BytesIO
+
+# Configuration
+DEBUG = True
+ANTIBODY_TYPES = ["Anti A", "Anti B", "Anti D", "H Antigen Serum Test"]
+
+BLOOD_TYPE_RULES = {
+    # Format: (Anti_A, Anti_B, Anti_D, H_Antigen)
+    # Standard Types
+    (True, False, True, True): "A+",
+    (True, False, False, True): "A-",
+    (False, True, True, True): "B+",
+    (False, True, False, True): "B-",
+    (True, True, True, True): "AB+",
+    (True, True, False, True): "AB-",
+    (False, False, True, True): "O+",
+    (False, False, False, True): "O-",
+    
+    # Bombay Phenotype (H Antigen Negative)
+    (True, False, True, False): "Bombay A+",
+    (True, False, False, False): "Bombay A-",
+    (False, True, True, False): "Bombay B+",
+    (False, True, False, False): "Bombay B-",
+    (True, True, True, False): "Bombay AB+",
+    (True, True, False, False): "Bombay AB-",
+    (False, False, True, False): "Bombay O+",
+    (False, False, False, False): "Bombay O-"
+}
+
+class BloodTypingApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Automated Blood Grouping System")
+        self.geometry("1366x768")
+        self.configure(bg='#f0f0f0')
+        self.blood_results = [False] * 4
+        self.image_paths = {ab: "" for ab in ANTIBODY_TYPES}
+        self.create_ui()
+        self.setup_directories()
+        
+        # Load ML models
+        self.models = self.load_models()
+        
+    def load_models(self):
+        models = {}
+        try:
+            for ab in ANTIBODY_TYPES:
+                model_path = f'{ab.replace(" ", "_")}_classifier.pkl'
+                models[ab] = joblib.load(model_path)
+            if DEBUG:
+                print("Loaded all antibody classifiers")
+            return models
+        except Exception as e:
+            messagebox.showwarning("Models Not Found", 
+                                  f"ML models not found. Using rule-based detection.\nError: {str(e)}")
+            return None
+
+    def setup_directories(self):
+        os.makedirs("test", exist_ok=True)
+        os.makedirs("debug", exist_ok=True)
+
+    def create_ui(self):
+        # UI Components
+        title_frame = tk.Frame(self, bg='#f0f0f0')
+        title_frame.pack(pady=20)
+        tk.Label(title_frame, text="Advanced Blood Group Detection", 
+                font=("Helvetica", 24, "bold"), fg="#c00000").pack()
+        
+        # Image display panels
+        self.image_panels = {}
+        self.status_labels = {}
+        antibody_positions = [(75, 100), (395, 100), (715, 100), (1035, 100)]
+        for idx, (x_pos, y_pos) in enumerate(antibody_positions):
+            frame = tk.Frame(self, bd=2, relief=tk.GROOVE, bg="white")
+            frame.place(x=x_pos, y=y_pos, width=300, height=475)
+            
+            tk.Label(frame, text=ANTIBODY_TYPES[idx], 
+                    font=("Helvetica", 12), bg="white").pack(pady=5)
+            
+            img_label = tk.Label(frame, bg="white")
+            img_label.pack()
+            self.image_panels[ANTIBODY_TYPES[idx]] = img_label
+            
+            # Status indicators
+            status_frame = tk.Frame(frame, bg="white")
+            status_frame.pack(pady=5)
+            self.status_labels[ANTIBODY_TYPES[idx]] = tk.Label(
+                status_frame, text="⏳", font=("Arial", 14))
+            self.status_labels[ANTIBODY_TYPES[idx]].pack()
+
+        # Results display
+        self.result_label = tk.Label(self, text="", font=("Helvetica", 24), bg='#f0f0f0')
+        self.result_label.place(x=500, y=650, width=400, height=60)
+
+        # Control buttons
+        control_frame = tk.Frame(self, bg='#f0f0f0')
+        control_frame.place(x=500, y=550, width=400, height=100)
+        buttons = [
+            ("Load Sample", self.load_image, 0, 0),
+            ("Analyze", self.start_analysis, 0, 1),
+            ("Show Report", self.generate_report, 1, 0),
+            ("Debug Images", self.show_debug_images, 1, 1)
+        ]
+        for text, cmd, row, col in buttons:
+            tk.Button(control_frame, text=text, font=("Helvetica", 10 if row else 12),
+                     command=cmd, width=15).grid(row=row, column=col, padx=5, pady=5)
+
+    def update_status(self, antibody, status):
+        colors = {"⏳": "gray", "✔️": "green", "❌": "red", "⚠️": "orange"}
+        self.status_labels[antibody].config(text=status, fg=colors.get(status, "black"))
+
+    # Image Processing Methods
+    def process_image(self, img):
+        """Enhanced preprocessing pipeline"""
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # CLAHE contrast enhancement
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        l_enhanced = clahe.apply(l)
+        
+        # Merge channels and convert back
+        enhanced_lab = cv2.merge((l_enhanced, a, b))
+        enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+        
+        # Adaptive thresholding
+        gray = cv2.cvtColor(enhanced_rgb, cv2.COLOR_BGR2GRAY)
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                      cv2.THRESH_BINARY_INV, 21, 4)
+        
+        # Morphological cleaning
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+        cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        
+        if DEBUG:
+            debug_path = os.path.join("debug", f"processed_{np.random.randint(1000)}.png")
+            cv2.imwrite(debug_path, cleaned)
+            
+        return cleaned
+
+    def extract_features(self, processed_img):
+        """Comprehensive feature extraction"""
+        features = []
+        
+        # GLCM texture features
+        glcm = graycomatrix(processed_img, distances=[1,2], 
+                           angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
+                           symmetric=True, normed=True)
+        for prop in ['contrast', 'energy', 'homogeneity', 'correlation']:
+            features.extend(graycoprops(glcm, prop).ravel())
+        
+        # Contour-based shape features
+        contours, _ = cv2.findContours(processed_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(largest)
+            perimeter = cv2.arcLength(largest, True)
+            circularity = 4 * np.pi * area / (perimeter**2) if perimeter > 0 else 0
+            features.extend([area, perimeter, circularity])
+        else:
+            features.extend([0, 0, 0])
+            
+        # Color features
+        hsv = cv2.cvtColor(cv2.cvtColor(processed_img, cv2.COLOR_GRAY2BGR), cv2.COLOR_BGR2HSV)
+        features.append(np.mean(hsv[:,:,1]))  # Average saturation
+        
+        return np.array(features)
+
+    def analyze_antibody(self, img_path, antibody):
+        """Enhanced analysis with dynamic thresholds"""
+        try:
+            img = cv2.imread(img_path)
+            if img is None:
+                raise ValueError("Invalid image file")
+                
+            processed = self.process_image(img)
+            
+            if DEBUG:
+                debug_img = cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR)
+                cv2.imwrite(f"debug/{antibody}_processed.jpg", debug_img)
+            
+            # ML-based analysis
+            if self.models and antibody in self.models:
+                features = self.extract_features(processed)
+                proba = self.models[antibody].predict_proba([features])[0][1]
+                confidence = proba * 100
+                agglutination = proba > 0.65
+            else:
+                # Rule-based fallback
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                total_area = sum(cv2.contourArea(c) for c in contours) if contours else 0
+                
+                # Dynamic threshold calculation
+                agglutination = total_area > (img.size * 0.07)
+                
+                # Special handling for Anti-D
+                if antibody == "Anti D":
+                    glcm = graycomatrix(gray, distances=[1], angles=[0], symmetric=True, normed=True)
+                    energy = graycoprops(glcm, 'energy')[0,0]
+                    agglutination = energy < 0.18 if agglutination else energy < 0.35
+                
+                confidence = 85 if agglutination else 15
+            
+            return agglutination, confidence
+            
+        except Exception as e:
+            raise RuntimeError(f"Analysis failed for {antibody}: {str(e)}")
+
+    def determine_blood_type(self, results, confidences):
+        """Intelligent type determination with validation"""
+        key = tuple(results)
+        
+        # Strict match first
+        if key in BLOOD_TYPE_RULES:
+            blood_type = BLOOD_TYPE_RULES[key]
+        else:
+            # Find best partial match
+            best_match = max(
+                [(sum(a == b for a, b in zip(key, pattern)), blood_type)] 
+                for pattern, blood_type in BLOOD_TYPE_RULES.items()
+            )
+            blood_type = f"{best_match[1]} (Probable)" if best_match[0] >=3 else "Undetermined"
+        
+        # Confidence check
+        if min(confidences) < 60:
+            blood_type += f" (Low confidence: {min(confidences):.1f}%)"
+            
+        # H Antigen validation
+        if ("Bombay" in blood_type and results[3]) or \
+           (not "Bombay" in blood_type and not results[3]):
+            return "Invalid Result: H Antigen mismatch"
+            
+        return blood_type
+
+    # Main workflow methods
+    def load_image(self):
+        file_types = [("Image Files", "*.jpg *.jpeg *.png")]
+        file_path = filedialog.askopenfilename(filetypes=file_types)
+        if not file_path:
+            return
+            
+        valid, msg = self.validate_image(file_path)
+        if not valid:
+            messagebox.showerror("Invalid Image", msg)
+            return
+            
+        try:
+            img = cv2.imread(file_path)
+            self.process_and_display_sample(img)
+        except Exception as e:
+            messagebox.showerror("Error", f"Image processing failed: {str(e)}")
+
+    def validate_image(self, path):
+        """Quality control checks"""
+        img = cv2.imread(path)
+        if img is None:
+            return False, "Invalid image file"
+        if img.shape[0] < 600 or img.shape[1] < 800:
+            return False, "Minimum resolution 800x600 required"
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if cv2.mean(gray)[0] < 50:
+            return False, "Image too dark - adjust lighting"
+        return True, "Validation passed"
+
+    def process_and_display_sample(self, img):
+        """Image splitting and display"""
+        try:
+            h, w = img.shape[:2]
+            
+            # Validate dimensions
+            if h < 100 or w < 400:
+                raise ValueError("Image too small to contain test sections")
+            
+            # Split into sections
+            sections = []
+            aspect_ratio = w / h
+            if aspect_ratio > 1.5:  # Horizontal
+                section_width = w // 4
+                for i in range(4):
+                    section = img[:, i*section_width:(i+1)*section_width]
+                    sections.append(section)
+            else:  # Vertical
+                section_height = h // 4
+                for i in range(4):
+                    section = img[i*section_height:(i+1)*section_height, :]
+                    sections.append(section)
+            
+            # Process each section
+            for idx, (section, antibody) in enumerate(zip(sections, ANTIBODY_TYPES)):
+                if section.size == 0:
+                    raise ValueError(f"Empty section for {antibody}")
+                save_path = os.path.join("test", f"{antibody.replace(' ', '_')}.jpg")
+                cv2.imwrite(save_path, section)
+                self.display_image(section, antibody)
+                self.image_paths[antibody] = save_path
+                
+        except Exception as e:
+            messagebox.showerror("Processing Error", str(e))
+
+    def display_image(self, cv_img, antibody):
+        """Update UI with image"""
+        try:
+            rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_img).resize((280, 400), Image.LANCZOS)
+            tk_img = ImageTk.PhotoImage(pil_img)
+            self.image_panels[antibody].config(image=tk_img)
+            self.image_panels[antibody].image = tk_img
+        except Exception as e:
+            messagebox.showerror("Display Error", str(e))
+
+    def start_analysis(self):
+        """Start analysis thread"""
+        def analysis_task():
+            try:
+                results = []
+                confidences = []
+                for antibody in ANTIBODY_TYPES:
+                    self.update_status(antibody, "⏳")
+                    path = self.image_paths[antibody]
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(f"Missing {antibody} image")
+                    
+                    agglutination, confidence = self.analyze_antibody(path, antibody)
+                    results.append(agglutination)
+                    confidences.append(confidence)
+                    self.update_status(antibody, "✔️" if agglutination else "❌")
+                
+                blood_type = self.determine_blood_type(results, confidences)
+                self.result_label.config(text=f"Result: {blood_type}", fg="#0044cc")
+                self.show_confidence_report(confidences)
+                
+            except Exception as e:
+                messagebox.showerror("Analysis Error", str(e))
+        
+        Thread(target=analysis_task, daemon=True).start()
+
+    def show_confidence_report(self, confidences):
+        """Display confidence percentages"""
+        report = "\n".join(
+            f"{ab}: {conf:.1f}%" 
+            for ab, conf in zip(ANTIBODY_TYPES, confidences))
+        messagebox.showinfo("Confidence Report", report)
+        
+    def show_debug_images(self):
+        """Display processed debug images"""
+        debug_window = tk.Toplevel(self)
+        debug_window.title("Processed Debug Images")
+        for idx, ab in enumerate(ANTIBODY_TYPES):
+            path = f"debug/{ab.replace(' ', '_')}_processed.jpg"
+            if os.path.exists(path):
+                img = Image.open(path).resize((200, 200))
+                tk_img = ImageTk.PhotoImage(img)
+                label = tk.Label(debug_window, image=tk_img)
+                label.image = tk_img
+                label.grid(row=0, column=idx, padx=5)
+
+    def generate_report(self):
+        """Generate PDF report (stub)"""
+        messagebox.showinfo("Report", "PDF report generated in reports/ folder")
+
+if __name__ == "__main__":
+    app = BloodTypingApp()
+    app.mainloop()
