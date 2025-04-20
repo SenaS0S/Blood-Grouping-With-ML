@@ -146,13 +146,17 @@ def create_app():
             return jsonify({'error': 'No files part'})
             
         files = request.files.getlist('files[]')
+        labels = request.form.getlist('labels[]') if 'labels[]' in request.form else []
         
         if not files or files[0].filename == '':
             return jsonify({'error': 'No selected files'})
             
         batch_results = []
         
-        for file in files:
+        for i, file in enumerate(files):
+            # Get label if available
+            label = labels[i] if i < len(labels) else f"Sample {i+1}"
+            
             if file and allowed_file(file.filename):
                 try:
                     # Read the file into memory
@@ -165,6 +169,7 @@ def create_app():
                     if not valid:
                         batch_results.append({
                             'filename': file.filename,
+                            'label': label,
                             'status': 'error',
                             'message': message
                         })
@@ -185,6 +190,7 @@ def create_app():
                     # Add to results
                     batch_results.append({
                         'filename': file.filename,
+                        'label': label,
                         'status': 'success',
                         'blood_type': result_data['blood_type'],
                         'confidence': result_data['overall_confidence'],
@@ -195,12 +201,14 @@ def create_app():
                     logger.error(f"Error processing {file.filename}: {str(e)}")
                     batch_results.append({
                         'filename': file.filename,
+                        'label': label,
                         'status': 'error',
                         'message': str(e)
                     })
             else:
                 batch_results.append({
                     'filename': file.filename,
+                    'label': label,
                     'status': 'error',
                     'message': 'Invalid file type'
                 })

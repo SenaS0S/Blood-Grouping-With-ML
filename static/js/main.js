@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('upload-form');
     const fileInput = document.getElementById('file-input');
     const uploadArea = document.querySelector('.upload-area');
-    const previewContainer = document.getElementById('image-preview');
+    const previewContainer = document.querySelector('.upload-preview');
     const loadingSpinner = document.getElementById('loading-spinner');
 
     if (uploadArea) {
@@ -104,6 +104,37 @@ document.addEventListener('DOMContentLoaded', function() {
     const batchFileInput = document.getElementById('batch-file-input');
     const batchResultsContainer = document.getElementById('batch-results');
     const batchLoadingSpinner = document.getElementById('batch-loading-spinner');
+    const batchFilesContainer = document.getElementById('batch-files-container');
+    
+    // Function to create label inputs for batch files
+    function createBatchFilesList() {
+        if (!batchFilesContainer || !batchFileInput.files.length) return;
+        
+        let html = '<h5 class="mt-3">Selected Files</h5>';
+        html += '<div class="table-responsive"><table class="table table-sm">';
+        html += '<thead><tr><th>File</th><th>Label</th></tr></thead><tbody>';
+        
+        for (let i = 0; i < batchFileInput.files.length; i++) {
+            const file = batchFileInput.files[i];
+            html += `
+            <tr>
+                <td>${file.name} (${formatFileSize(file.size)})</td>
+                <td>
+                    <input type="text" name="labels[]" class="form-control form-control-sm" 
+                    placeholder="Sample label" value="Sample ${i+1}">
+                </td>
+            </tr>`;
+        }
+        
+        html += '</tbody></table></div>';
+        batchFilesContainer.innerHTML = html;
+    }
+    
+    if (batchFileInput) {
+        batchFileInput.addEventListener('change', function() {
+            createBatchFilesList();
+        });
+    }
 
     if (batchUploadForm) {
         batchUploadForm.addEventListener('submit', function(e) {
@@ -121,8 +152,16 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Create FormData and append files
             const formData = new FormData();
+            
+            // Get all files
             for (let i = 0; i < batchFileInput.files.length; i++) {
                 formData.append('files[]', batchFileInput.files[i]);
+            }
+            
+            // Get all labels
+            const labelInputs = document.querySelectorAll('input[name="labels[]"]');
+            for (let i = 0; i < labelInputs.length; i++) {
+                formData.append('labels[]', labelInputs[i].value || `Sample ${i+1}`);
             }
             
             // Send AJAX request
@@ -168,6 +207,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <thead>
                         <tr>
                             <th>#</th>
+                            <th>Label</th>
                             <th>Filename</th>
                             <th>Status</th>
                             <th>Blood Type</th>
@@ -185,6 +225,7 @@ document.addEventListener('DOMContentLoaded', function() {
             html += `
                 <tr>
                     <td>${index + 1}</td>
+                    <td><strong>${result.label || 'Sample ' + (index + 1)}</strong></td>
                     <td>${result.filename}</td>
                     <td><i class="bi bi-${statusIcon} ${statusClass}"></i> ${result.status}</td>
                     <td>${result.status === 'success' ? result.blood_type : '-'}</td>
