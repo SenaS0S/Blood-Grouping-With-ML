@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blood Type Results | Blood Group Detection System</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="bi bi-droplet-fill"></i> Blood Group AI
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('batch_analysis') }}">Batch Analysis</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('about') }}">About</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-clipboard-data"></i> Analysis Results</h5>
+                            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-arrow-left"></i> New Analysis
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body text-center">
+                        <h2 class="mb-4">Blood Type Result</h2>
+                        <div class="blood-type-display">{{ result.blood_type }}</div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-6 offset-md-3">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <h5>Overall Confidence</h5>
+                                        <div class="confidence-meter">
+                                            <div class="confidence-bar {% if result.overall_confidence >= 80 %}high-confidence{% elif result.overall_confidence >= 60 %}medium-confidence{% else %}low-confidence{% endif %}" 
+                                                 style="width: {{ result.overall_confidence }}%"></div>
+                                        </div>
+                                        <p class="mt-2">{{ result.overall_confidence|round(1) }}% confident</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-droplet"></i> Antibody Test Results</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            {% for antibody, data in result.antibody_results.items() %}
+                            <div class="col-md-3 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header text-center">
+                                        {{ antibody }}
+                                    </div>
+                                    <div class="card-body text-center">
+                                        {% if images and antibody in images %}
+                                        <img src="data:image/jpeg;base64,{{ images[antibody] }}" class="analysis-image mb-3">
+                                        {% endif %}
+                                        
+                                        <h5 class="mb-3">
+                                            <span class="result-indicator {% if data.agglutination %}result-positive{% else %}result-negative{% endif %}"></span>
+                                            {% if data.agglutination %}
+                                            Positive
+                                            {% else %}
+                                            Negative
+                                            {% endif %}
+                                        </h5>
+                                        
+                                        <div class="confidence-meter">
+                                            <div class="confidence-bar {% if data.confidence >= 80 %}high-confidence{% elif data.confidence >= 60 %}medium-confidence{% else %}low-confidence{% endif %}" 
+                                                 style="width: {{ data.confidence }}%"></div>
+                                        </div>
+                                        <p class="mt-2 mb-0">{{ data.confidence|round(1) }}% confident</p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        {% if report_image %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-file-earmark-medical"></i> Full Report</h5>
+                            <a href="data:image/png;base64,{{ report_image }}" download="blood_type_report.png" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> Download Report
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body text-center">
+                        <img src="data:image/png;base64,{{ report_image }}" class="report-image">
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-info-circle"></i> Interpretation</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>Blood Type: {{ result.blood_type }}</h6>
+                        <p>
+                            {% if "A+" in result.blood_type %}
+                                Type A+ blood has A antigens and the Rh factor. Can donate to A+ and AB+, but can only receive from A+, A-, O+ and O-.
+                            {% elif "A-" in result.blood_type %}
+                                Type A- blood has A antigens but no Rh factor. Can donate to A+, A-, AB+ and AB-, but can only receive from A- and O-.
+                            {% elif "B+" in result.blood_type %}
+                                Type B+ blood has B antigens and the Rh factor. Can donate to B+ and AB+, but can only receive from B+, B-, O+ and O-.
+                            {% elif "B-" in result.blood_type %}
+                                Type B- blood has B antigens but no Rh factor. Can donate to B+, B-, AB+ and AB-, but can only receive from B- and O-.
+                            {% elif "AB+" in result.blood_type %}
+                                Type AB+ blood has both A and B antigens and the Rh factor. Can donate only to AB+, but can receive from all blood types (universal recipient).
+                            {% elif "AB-" in result.blood_type %}
+                                Type AB- blood has both A and B antigens but no Rh factor. Can donate to AB+ and AB-, but can only receive from A-, B-, AB- and O-.
+                            {% elif "O+" in result.blood_type %}
+                                Type O+ blood has no A or B antigens but has the Rh factor. Can donate to A+, B+, AB+ and O+, but can only receive from O+ and O-.
+                            {% elif "O-" in result.blood_type %}
+                                Type O- blood has no A or B antigens and no Rh factor. Can donate to all blood types (universal donor), but can only receive from O-.
+                            {% elif "Bombay" in result.blood_type %}
+                                Bombay phenotype is a rare blood type lacking the H antigen. People with this type can only receive blood from other Bombay phenotype donors.
+                            {% else %}
+                                This blood type result requires further confirmation.
+                            {% endif %}
+                        </p>
+                        
+                        {% if result.overall_confidence < 70 %}
+                        <div class="alert alert-warning mt-3">
+                            <i class="bi bi-exclamation-triangle-fill"></i> Low confidence result. We recommend confirming with another test.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Analysis Notes</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>Technical Details</h6>
+                        <ul>
+                            <li>Analysis completed at {{ result.timestamp }}</li>
+                            <li>
+                                Method: 
+                                {% if result.overall_confidence > 0 %}
+                                    Machine Learning with texture and shape analysis
+                                {% else %}
+                                    Rule-based agglutination detection
+                                {% endif %}
+                            </li>
+                            <li>Agglutination detected in:
+                                <ul>
+                                    {% for antibody, data in result.antibody_results.items() %}
+                                        {% if data.agglutination %}
+                                        <li>{{ antibody }}</li>
+                                        {% endif %}
+                                    {% endfor %}
+                                </ul>
+                            </li>
+                        </ul>
+                        
+                        <h6 class="mt-3">Next Steps</h6>
+                        <ul>
+                            <li>Save this report for your records</li>
+                            <li>Share the results with your healthcare provider</li>
+                            <li>Consider donating blood if eligible</li>
+                        </ul>
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="bi bi-info-circle-fill"></i> This automated analysis is for informational purposes only and should not replace professional medical testing.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-12 text-center">
+                <a href="{{ url_for('index') }}" class="btn btn-primary me-2">
+                    <i class="bi bi-arrow-repeat"></i> New Analysis
+                </a>
+                <a href="{{ url_for('batch_analysis') }}" class="btn btn-secondary">
+                    <i class="bi bi-collection"></i> Batch Analysis
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer mt-5">
+        <div class="container">
+            <p>&copy; 2023 Blood Group AI Detection System. All rights reserved.</p>
+            <p class="text-muted">Powered by OpenCV, Scikit-learn, and TensorFlow</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

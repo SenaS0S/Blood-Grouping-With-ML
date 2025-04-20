@@ -1,0 +1,168 @@
+/* Main styles for Blood Grouping System */
+
+/* Import external fonts */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+/* Base styling */
+body {
+    font-family: 'Roboto', sans-serif;
+    line-height: 1.6;
+    color: var(--bs-light);
+    background-color: var(--bs-dark);
+    padding-bottom: 2rem;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    color: #c00000 !important;
+}
+
+.card {
+    border: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1.5rem;
+    background-color: var(--bs-dark);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.card-header {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 500;
+}
+
+/* Blood group display */
+.blood-type-display {
+    font-size: 5rem;
+    font-weight: 700;
+    text-align: center;
+    color: #c00000;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background-color: rgba(0, 0, 0, 0.1);
+    margin: 1rem 0;
+}
+
+/* Antibody test result indicators */
+.result-indicator {
+    display: inline-block;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+}
+
+.result-positive {
+    background-color: #28a745;
+}
+
+.result-negative {
+    background-color: #dc3545;
+}
+
+.result-uncertain {
+    background-color: #ffc107;
+}
+
+/* Confidence meter */
+.confidence-meter {
+    height: 0.5rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+    background-color: var(--bs-gray-dark);
+}
+
+.confidence-bar {
+    height: 100%;
+    border-radius: 0.25rem;
+    background-color: var(--bs-primary);
+}
+
+.high-confidence {
+    background-color: var(--bs-success);
+}
+
+.medium-confidence {
+    background-color: var(--bs-warning);
+}
+
+.low-confidence {
+    background-color: var(--bs-danger);
+}
+
+/* Image display areas */
+.analysis-image {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.report-image {
+    max-width: 100%;
+    border-radius: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* File upload area */
+.upload-area {
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+    margin: 1.5rem 0;
+    transition: all 0.3s ease;
+}
+
+.upload-area:hover {
+    border-color: var(--bs-primary);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.upload-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: var(--bs-secondary);
+}
+
+/* Batch processing */
+.batch-results-table {
+    width: 100%;
+    margin-top: 1.5rem;
+}
+
+.batch-results-table th {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Loading spinner */
+.spinner-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+/* About page */
+.about-section {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.about-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--bs-primary);
+}
+
+/* Footer */
+.footer {
+    padding: 1.5rem 0;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--bs-gray);
+    margin-top: 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
