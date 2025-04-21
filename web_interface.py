@@ -3,11 +3,13 @@ import cv2
 import numpy as np
 import base64
 import logging
+import uuid
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, flash, session
 from werkzeug.utils import secure_filename
 from blood_typing import BloodGroupAnalyzer, validate_image
 from io import BytesIO
+from models import db, BloodTypingResult
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -17,6 +19,24 @@ def create_app():
     """Create and configure the Flask application."""
     app = Flask(__name__)
     app.secret_key = os.environ.get("SESSION_SECRET", "bloodtyping_secret_key")
+    
+    # Configure database connection
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "pool_recycle": 300,
+            "pool_pre_ping": True,
+        }
+        app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+        logger.info("Database configured with: " + db_url.split('@')[0].split(':')[0] + ':***@' + db_url.split('@')[1] if '@' in db_url else db_url)
+    
+    # Initialize the database
+    db.init_app(app)
+    
+    # Create all database tables
+    with app.app_context():
+        db.create_all()
     
     # Initialize the blood group analyzer
     blood_analyzer = BloodGroupAnalyzer()
@@ -133,9 +153,35 @@ def create_app():
                     result_data = blood_analyzer.analyze_sample(save_path)
                     report_image, report_path = blood_analyzer.generate_report_image(result_data)
                 
+                # Generate a unique sample ID
+                sample_id = str(uuid.uuid4())
+                
+                # Save results to database
+                try:
+                    # Create new result record
+                    new_result = BloodTypingResult(
+                        sample_id=sample_id,
+                        blood_type=result_data['blood_type'],
+                        confidence=float(result_data['overall_confidence']),
+                        image_path=save_path,
+                        report_path=report_path,
+                        sample_label=file.filename
+                    )
+                    # Store antibody results as JSON
+                    new_result.set_antibody_results(result_data['antibody_results'])
+                    
+                    # Add to database and commit
+                    db.session.add(new_result)
+                    db.session.commit()
+                    logger.info(f"Saved result to database: {sample_id}")
+                except Exception as e:
+                    logger.error(f"Error saving to database: {str(e)}")
+                    # Continue even if saving to DB fails
+                
                 # Store results in session
                 session['result_data'] = result_data
                 session['report_path'] = report_path
+                session['sample_id'] = sample_id
                 
                 # Redirect to results page
                 return redirect(url_for('results'))
@@ -296,6 +342,31 @@ def create_app():
                         # Generate report
                         _, report_path = blood_analyzer.generate_report_image(result_data)
                     
+                    # Generate a unique sample ID
+                    sample_id = str(uuid.uuid4())
+                    
+                    # Save results to database
+                    try:
+                        # Create new result record
+                        new_result = BloodTypingResult(
+                            sample_id=sample_id,
+                            blood_type=result_data['blood_type'],
+                            confidence=float(result_data['overall_confidence']),
+                            image_path=save_path,
+                            report_path=report_path,
+                            sample_label=label  # Use the custom label
+                        )
+                        # Store antibody results as JSON
+                        new_result.set_antibody_results(result_data['antibody_results'])
+                        
+                        # Add to database and commit
+                        db.session.add(new_result)
+                        db.session.commit()
+                        logger.info(f"Saved batch result to database: {sample_id}")
+                    except Exception as e:
+                        logger.error(f"Error saving batch result to database: {str(e)}")
+                        # Continue even if saving to DB fails
+                    
                     # Add to results
                     batch_results.append({
                         'filename': file.filename,
@@ -303,7 +374,8 @@ def create_app():
                         'status': 'success',
                         'blood_type': result_data['blood_type'],
                         'confidence': result_data['overall_confidence'],
-                        'report_path': os.path.basename(report_path)
+                        'report_path': os.path.basename(report_path),
+                        'sample_id': sample_id
                     })
                     
                 except Exception as e:
@@ -323,6 +395,58 @@ def create_app():
                 })
                 
         return jsonify({'results': batch_results})
+    
+    @app.route('/history')
+    def history():
+        """Show historical blood typing results."""
+        # Fetch results from database
+        results = []
+        try:
+            results = BloodTypingResult.query.order_by(BloodTypingResult.timestamp.desc()).all()
+            logger.info(f"Retrieved {len(results)} results from database")
+        except Exception as e:
+            logger.error(f"Error retrieving results from database: {str(e)}")
+            flash(f"Error retrieving history: {str(e)}", "error")
+        
+        return render_template('history.html', results=results)
+    
+    @app.route('/result/<sample_id>')
+    def view_result(sample_id):
+        """View a specific result by sample ID."""
+        try:
+            # Query the database for the result
+            result = BloodTypingResult.query.filter_by(sample_id=sample_id).first()
+            
+            if not result:
+                flash("Result not found", "error")
+                return redirect(url_for('history'))
+            
+            # Prepare data for template
+            result_data = {
+                'blood_type': result.blood_type,
+                'overall_confidence': result.confidence,
+                'timestamp': result.timestamp,
+                'antibody_results': result.get_antibody_results()
+            }
+            
+            # Generate report image data
+            report_image = None
+            if result.report_path and os.path.exists(result.report_path):
+                with open(result.report_path, 'rb') as img_file:
+                    report_image = base64.b64encode(img_file.read()).decode('utf-8')
+            
+            return render_template(
+                'view_result.html',
+                result=result_data,
+                sample_id=sample_id,
+                sample_label=result.sample_label,
+                report_image=report_image
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving result {sample_id}: {str(e)}")
+            flash(f"Error retrieving result: {str(e)}", "error")
+            return redirect(url_for('history'))
     
     @app.route('/about')
     def about():
