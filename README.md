@@ -29,5 +29,5 @@ Key features:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/blood-group-detection.git
+git clone https://github.com/SenaS0S/BloodGroupAI.git
 cd blood-group-detection
